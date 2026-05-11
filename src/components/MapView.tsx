@@ -74,7 +74,6 @@ export default function MapView(props: MapViewProps) {
     onPick,
     center,
   } = props;
-  const mapRef = useRef<L.Map | null>(null);
 
   const fitPoints = useMemo<LatLng[]>(() => {
     const pts: LatLng[] = [];
