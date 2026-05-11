@@ -10,33 +10,68 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiTrafficRouteImport } from './routes/api/traffic'
+import { Route as ApiFindRouteRouteImport } from './routes/api/find-route'
+import { Route as ApiAlternateRoutesRouteImport } from './routes/api/alternate-routes'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiTrafficRoute = ApiTrafficRouteImport.update({
+  id: '/api/traffic',
+  path: '/api/traffic',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiFindRouteRoute = ApiFindRouteRouteImport.update({
+  id: '/api/find-route',
+  path: '/api/find-route',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAlternateRoutesRoute = ApiAlternateRoutesRouteImport.update({
+  id: '/api/alternate-routes',
+  path: '/api/alternate-routes',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/alternate-routes': typeof ApiAlternateRoutesRoute
+  '/api/find-route': typeof ApiFindRouteRoute
+  '/api/traffic': typeof ApiTrafficRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/alternate-routes': typeof ApiAlternateRoutesRoute
+  '/api/find-route': typeof ApiFindRouteRoute
+  '/api/traffic': typeof ApiTrafficRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/alternate-routes': typeof ApiAlternateRoutesRoute
+  '/api/find-route': typeof ApiFindRouteRoute
+  '/api/traffic': typeof ApiTrafficRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/api/alternate-routes' | '/api/find-route' | '/api/traffic'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/api/alternate-routes' | '/api/find-route' | '/api/traffic'
+  id:
+    | '__root__'
+    | '/'
+    | '/api/alternate-routes'
+    | '/api/find-route'
+    | '/api/traffic'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiAlternateRoutesRoute: typeof ApiAlternateRoutesRoute
+  ApiFindRouteRoute: typeof ApiFindRouteRoute
+  ApiTrafficRoute: typeof ApiTrafficRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,22 +83,36 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/traffic': {
+      id: '/api/traffic'
+      path: '/api/traffic'
+      fullPath: '/api/traffic'
+      preLoaderRoute: typeof ApiTrafficRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/find-route': {
+      id: '/api/find-route'
+      path: '/api/find-route'
+      fullPath: '/api/find-route'
+      preLoaderRoute: typeof ApiFindRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/alternate-routes': {
+      id: '/api/alternate-routes'
+      path: '/api/alternate-routes'
+      fullPath: '/api/alternate-routes'
+      preLoaderRoute: typeof ApiAlternateRoutesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiAlternateRoutesRoute: ApiAlternateRoutesRoute,
+  ApiFindRouteRoute: ApiFindRouteRoute,
+  ApiTrafficRoute: ApiTrafficRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
