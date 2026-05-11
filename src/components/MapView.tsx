@@ -1,5 +1,5 @@
 // Interactive Leaflet map. Client-only — guard parent renders with mounted state.
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -89,7 +89,6 @@ export default function MapView(props: MapViewProps) {
       center={center}
       zoom={12}
       className="h-full w-full"
-      ref={mapRef as never}
       scrollWheelZoom
     >
       <TileLayer
