@@ -1,6 +1,33 @@
 // Service wrapper for the routing API.
 import type { LatLng } from "@/lib/algorithms/graph";
 
+// ---------------------------------------------------------------------------
+// Route types
+// ---------------------------------------------------------------------------
+
+export type RouteType =
+  | "fastest"
+  | "shortest"
+  | "least_traffic"
+  | "emergency"
+  | "fuel_efficient";
+
+export interface FuelEstimate {
+  litres: number;
+  costINR: number;
+  kwh: number;
+  evCostINR: number;
+}
+
+export interface TurnByTurnStep {
+  instruction: string;
+  distance: number;
+  duration: number;
+  type: string;
+  modifier?: string;
+  location: LatLng;
+}
+
 export interface RouteResponse {
   coordinates: LatLng[];
   explored: LatLng[];
@@ -17,6 +44,16 @@ export interface RouteResponse {
     color: string;
   }>;
   bucket: number;
+  routeType?: RouteType;
+  fuel?: FuelEstimate;
+  voiceInstructions?: string[];
+  turnByTurn?: TurnByTurnStep[];
+  routingEngine?: "osrm" | "astar-fallback";
+  waypoints?: Array<{
+    name: string;
+    location: LatLng;
+    snappedDistance: number;
+  }>;
 }
 
 export interface AlternateRoute {
@@ -26,17 +63,35 @@ export interface AlternateRoute {
   etaMinutes: number;
   trafficScore: number;
   nodesExplored: number;
+  fuel?: FuelEstimate;
+  routingEngine?: string;
 }
+
+// ---------------------------------------------------------------------------
+// API calls
+// ---------------------------------------------------------------------------
 
 export async function findRoute(
   source: LatLng,
   destination: LatLng,
   trafficWeight = 1,
+  options?: {
+    waypoints?: LatLng[];
+    routeType?: RouteType;
+    roadClosures?: LatLng[];
+  },
 ): Promise<RouteResponse> {
   const res = await fetch("/api/find-route", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ source, destination, trafficWeight }),
+    body: JSON.stringify({
+      source,
+      destination,
+      trafficWeight,
+      waypoints: options?.waypoints,
+      routeType: options?.routeType,
+      roadClosures: options?.roadClosures,
+    }),
   });
   if (!res.ok) throw new Error("Route lookup failed");
   return res.json();

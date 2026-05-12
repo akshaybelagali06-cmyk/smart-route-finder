@@ -218,3 +218,66 @@
     opacity: 0.85;
   }
 }
+
+/* Loading dots animation */
+@keyframes loading-bounce {
+  0%,
+  80%,
+  100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.loading-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  animation: loading-bounce 1.2s ease-in-out infinite;
+}
+
+/* Sidebar scrollable */
+.sidebar-scrollable {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.4 0.05 260) transparent;
+}
+.sidebar-scrollable::-webkit-scrollbar {
+  width: 4px;
+}
+.sidebar-scrollable::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-scrollable::-webkit-scrollbar-thumb {
+  background: oklch(0.4 0.05 260);
+  border-radius: 4px;
+}
+
+/* Light theme: don't invert map tiles */
+.light .dark-tiles {
+  filter: none;
+}
+
+/* Leaflet draggable marker cursor */
+.leaflet-marker-draggable {
+  cursor: grab !important;
+}
+.leaflet-marker-draggable:active {
+  cursor: grabbing !important;
+}
+
+/* Route hover glow */
+.leaflet-interactive:hover {
+  filter: brightness(1.15);
+}
+
+/* Mobile responsiveness */
+@media (max-width: 767px) {
+  .min-h-screen {
+    padding: 8px !important;
+  }
+}
