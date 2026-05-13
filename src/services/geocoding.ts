@@ -63,6 +63,18 @@ export async function searchPlaces(
   url.searchParams.set("limit", String(limit));
   url.searchParams.set("addressdetails", "1");
 
+  // Prioritize India results
+  url.searchParams.set("countrycodes", "in");
+
+  // Bengaluru area bias
+  url.searchParams.set(
+    "viewbox",
+    "77.45,13.15,77.75,12.80"
+  );
+
+  // Prefer results inside viewbox
+  url.searchParams.set("bounded", "1");
+
   const res = await fetch(url.toString(), {
     headers: { "User-Agent": "SmartRouteOptimizer/1.0" },
   });
