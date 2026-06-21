@@ -104,9 +104,9 @@ export default function RoutePanel({ route, alternates, emergency }: Props) {
             <Stat
               icon={<Clock className="h-4 w-4" />}
               label="ETA"
-              value={`${
-                emergency ? Math.max(1, Math.round(route.etaMinutes * 0.6)) : route.etaMinutes
-              } min`}
+              // Backend is the single source of truth for ETA calculations
+              // Emergency mode adjustment (0.75x) is already applied server-side
+              value={`${route.etaMinutes} min`}
               hint={emergency ? "Emergency mode" : undefined}
             />
             <Stat
@@ -225,7 +225,7 @@ export default function RoutePanel({ route, alternates, emergency }: Props) {
               <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                 <BarChart3 className="h-3.5 w-3.5" /> Traffic Along Route
               </div>
-              <div className="flex items-end gap-[2px] rounded-lg border border-border/60 bg-muted/20 p-2" style={{ height: 48 }}>
+              <div className="flex items-end gap-0.5 rounded-lg border border-border/60 bg-muted/20 p-2" style={{ height: 48 }}>
                 {route.pathTraffic.map((t, i) => (
                   <div
                     key={i}

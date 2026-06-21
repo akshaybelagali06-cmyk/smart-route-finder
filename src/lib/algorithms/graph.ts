@@ -1,94 +1,132 @@
-// Graph & grid utilities for the Smart Route Optimizer.
-// We build a uniform lat/lng grid bounding the source and destination,
-// connect each cell to its 8 neighbours, and use this as the search space.
-
-export type LatLng = [number, number]; // [lat, lng]
+// Complete graph.ts implementation
+export type LatLng = [number, number];
 
 export interface GridNode {
   id: string;
-  row: number;
-  col: number;
   lat: number;
   lng: number;
+  x: number;
+  y: number;
 }
 
 export interface Grid {
-  rows: number;
-  cols: number;
   nodes: GridNode[][];
+  width: number;
+  height: number;
   minLat: number;
   maxLat: number;
   minLng: number;
   maxLng: number;
-  cellLat: number;
-  cellLng: number;
 }
 
-// Haversine distance (km).
+// Haversine distance between two points in km
 export function haversine(a: LatLng, b: LatLng): number {
-  const R = 6371;
+  const R = 6371; // Earth's radius in km
+  const dLat = ((b[0] - a[0]) * Math.PI) / 180;
+  const dLon = ((b[1] - a[1]) * Math.PI) / 180;
+  const lat1 = (a[0] * Math.PI) / 180;
+  const lat2 = (b[0] * Math.PI) / 180;
+
+  const x =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
+  const c = 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+  return R * c;
+}
+
+// Bearing calculation function
+export function bearing(a: LatLng, b: LatLng): number {
   const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(b[0] - a[0]);
-  const dLng = toRad(b[1] - a[1]);
+  const toDeg = (r: number) => (r * 180) / Math.PI;
   const lat1 = toRad(a[0]);
   const lat2 = toRad(b[0]);
+  const dLng = toRad(b[1] - a[1]);
+  const y = Math.sin(dLng) * Math.cos(lat2);
   const x =
-    Math.sin(dLat / 2) ** 2 +
-    Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
-  return 2 * R * Math.asin(Math.sqrt(x));
+    Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  const deg = toDeg(Math.atan2(y, x));
+  return (deg + 360) % 360;
 }
 
-// Build a grid that comfortably contains source & destination.
-export function buildGrid(source: LatLng, destination: LatLng, size = 22): Grid {
-  const padLat = Math.abs(source[0] - destination[0]) * 0.35 + 0.005;
-  const padLng = Math.abs(source[1] - destination[1]) * 0.35 + 0.005;
-  const minLat = Math.min(source[0], destination[0]) - padLat;
-  const maxLat = Math.max(source[0], destination[0]) + padLat;
-  const minLng = Math.min(source[1], destination[1]) - padLng;
-  const maxLng = Math.max(source[1], destination[1]) + padLng;
+// Smallest difference between two bearings, in degrees (0-180)
+export function angleDifference(b1: number, b2: number): number {
+  let diff = Math.abs(b1 - b2) % 360;
+  return diff > 180 ? 360 - diff : diff;
+}
 
-  const rows = size;
-  const cols = size;
-  const cellLat = (maxLat - minLat) / (rows - 1);
-  const cellLng = (maxLng - minLng) / (cols - 1);
-
+// Build grid between two points
+export function buildGrid(source: LatLng, destination: LatLng, gridSize: number): Grid {
+  const minLat = Math.min(source[0], destination[0]);
+  const maxLat = Math.max(source[0], destination[0]);
+  const minLng = Math.min(source[1], destination[1]);
+  const maxLng = Math.max(source[1], destination[1]);
+  
+  const latStep = (maxLat - minLat) / (gridSize - 1);
+  const lngStep = (maxLng - minLng) / (gridSize - 1);
+  
   const nodes: GridNode[][] = [];
-  for (let r = 0; r < rows; r++) {
-    const row: GridNode[] = [];
-    for (let c = 0; c < cols; c++) {
-      row.push({
-        id: `${r}_${c}`,
-        row: r,
-        col: c,
-        lat: minLat + r * cellLat,
-        lng: minLng + c * cellLng,
-      });
+  
+  for (let i = 0; i < gridSize; i++) {
+    nodes[i] = [];
+    const lat = minLat + i * latStep;
+    for (let j = 0; j < gridSize; j++) {
+      const lng = minLng + j * lngStep;
+      nodes[i][j] = {
+        id: `${i},${j}`,
+        lat,
+        lng,
+        x: i,
+        y: j,
+      };
     }
-    nodes.push(row);
   }
-
-  return { rows, cols, nodes, minLat, maxLat, minLng, maxLng, cellLat, cellLng };
+  
+  return {
+    nodes,
+    width: gridSize,
+    height: gridSize,
+    minLat,
+    maxLat,
+    minLng,
+    maxLng,
+  };
 }
 
+// Find nearest grid node to a point
 export function nearestNode(grid: Grid, point: LatLng): GridNode {
-  const r = Math.round((point[0] - grid.minLat) / grid.cellLat);
-  const c = Math.round((point[1] - grid.minLng) / grid.cellLng);
-  const rr = Math.max(0, Math.min(grid.rows - 1, r));
-  const cc = Math.max(0, Math.min(grid.cols - 1, c));
-  return grid.nodes[rr][cc];
-}
-
-// 8-direction neighbours.
-export function neighbours(grid: Grid, node: GridNode): GridNode[] {
-  const out: GridNode[] = [];
-  for (let dr = -1; dr <= 1; dr++) {
-    for (let dc = -1; dc <= 1; dc++) {
-      if (dr === 0 && dc === 0) continue;
-      const nr = node.row + dr;
-      const nc = node.col + dc;
-      if (nr < 0 || nr >= grid.rows || nc < 0 || nc >= grid.cols) continue;
-      out.push(grid.nodes[nr][nc]);
+  let minDist = Infinity;
+  let nearest: GridNode | null = null;
+  
+  for (const row of grid.nodes) {
+    for (const node of row) {
+      const dist = Math.hypot(node.lat - point[0], node.lng - point[1]);
+      if (dist < minDist) {
+        minDist = dist;
+        nearest = node;
+      }
     }
   }
-  return out;
+  
+  return nearest!;
+}
+
+// Get valid neighbors of a grid node
+export function neighbours(grid: Grid, node: GridNode): GridNode[] {
+  const neighbors: GridNode[] = [];
+  const directions = [
+    [-1, -1], [-1, 0], [-1, 1],
+    [0, -1],           [0, 1],
+    [1, -1],  [1, 0],  [1, 1]
+  ];
+  
+  for (const [dx, dy] of directions) {
+    const newX = node.x + dx;
+    const newY = node.y + dy;
+    if (newX >= 0 && newX < grid.width && newY >= 0 && newY < grid.height) {
+      neighbors.push(grid.nodes[newX][newY]);
+    }
+  }
+  
+  return neighbors;
 }

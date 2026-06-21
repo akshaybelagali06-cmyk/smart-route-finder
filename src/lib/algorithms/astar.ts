@@ -12,12 +12,17 @@ import {
   type LatLng,
   haversine,
   neighbours,
+  bearing,
 } from "./graph";
 import { type TrafficCell } from "./traffic";
+
+export type RouteType = "fastest" | "shortest" | "least_traffic" | "emergency" | "fuel_efficient";
 
 export interface AStarOptions {
   // Higher = traffic matters more. 0 = ignore traffic (shortest distance).
   trafficWeight?: number;
+  // Route type strategy for cost computation
+  routeType?: RouteType;
 }
 
 export interface AStarResult {
@@ -27,6 +32,7 @@ export interface AStarResult {
   distanceKm: number;
   trafficScore: number; // average density 0..1 along the path
   cost: number;
+  routeType: RouteType; // which strategy was used
 }
 
 interface QItem {
@@ -73,6 +79,18 @@ class PQ {
   }
 }
 
+// Calculate angle difference between two bearings (0-180 degrees)
+function angleDifference(bearing1: number, bearing2: number): number {
+  let diff = Math.abs(bearing1 - bearing2) % 360;
+  if (diff > 180) diff = 360 - diff;
+  return diff;
+}
+
+// Store bearing for each node to compute turn penalties
+function getNodeBearing(from: GridNode, to: GridNode): number {
+  return bearing([from.lat, from.lng], [to.lat, to.lng]);
+}
+
 export function aStar(
   grid: Grid,
   start: GridNode,
@@ -81,6 +99,7 @@ export function aStar(
   options: AStarOptions = {},
 ): AStarResult | null {
   const trafficWeight = options.trafficWeight ?? 1;
+  const routeType = options.routeType ?? "fastest";
   const goalLatLng: LatLng = [goal.lat, goal.lng];
 
   const open = new PQ();
@@ -89,6 +108,9 @@ export function aStar(
   const gScore = new Map<string, number>();
   const cameFrom = new Map<string, GridNode>();
   const explored: LatLng[] = [];
+  
+  // For fuel_efficient route type - store incoming bearing for each node
+  const incomingBearing = new Map<string, number>();
 
   gScore.set(start.id, 0);
   open.push({ node: start, f: haversine([start.lat, start.lng], goalLatLng) });
@@ -126,6 +148,7 @@ export function aStar(
         distanceKm,
         trafficScore: densitySum / path.length,
         cost: gScore.get(current.id) ?? 0,
+        routeType,
       };
     }
 
@@ -133,8 +156,62 @@ export function aStar(
       if (closed.has(nb.id)) continue;
       const stepDist = haversine([current.lat, current.lng], [nb.lat, nb.lng]);
       const t = traffic.get(nb.id)?.density ?? 0;
-      // cost = distance + trafficWeight * (distance * trafficDensity)
-      const stepCost = stepDist + trafficWeight * stepDist * t * 3;
+      
+      let stepCost: number;
+      
+      // Compute stepCost based on routeType
+      switch (routeType) {
+        case "shortest":
+          // Ignore traffic entirely
+          stepCost = stepDist;
+          break;
+          
+        case "fastest":
+          // Default formula: distance + traffic penalty
+          stepCost = stepDist + trafficWeight * stepDist * t * 3;
+          break;
+          
+        case "least_traffic":
+          // Double the traffic penalty to actively avoid congested cells
+          stepCost = stepDist + (trafficWeight * 2) * stepDist * t * 3;
+          break;
+          
+        case "emergency":
+          // Reduce traffic penalty to 1/3 (simulate priority vehicle)
+          stepCost = stepDist + trafficWeight * stepDist * t * 1;
+          break;
+          
+        case "fuel_efficient":
+          {
+            // Base cost: distance + moderate traffic penalty
+            let baseCost = stepDist + trafficWeight * stepDist * t * 2;
+            
+            // Add turn penalty for sharp direction changes
+            const currentBearing = incomingBearing.get(current.id);
+            if (currentBearing !== undefined) {
+              const nextBearing = getNodeBearing(current, nb);
+              const turnAngle = angleDifference(currentBearing, nextBearing);
+              
+              // Penalty for turns > 45 degrees (simulates extra fuel consumption)
+              const turnPenalty = turnAngle > 45 ? stepDist * 0.5 : 0;
+              stepCost = baseCost + turnPenalty;
+            } else {
+              // First move from start - no turn penalty
+              stepCost = baseCost;
+            }
+            
+            // Store the bearing for the neighbor
+            const nbBearing = getNodeBearing(current, nb);
+            incomingBearing.set(nb.id, nbBearing);
+          }
+          break;
+          
+        default:
+          // Fallback to fastest
+          stepCost = stepDist + trafficWeight * stepDist * t * 3;
+          break;
+      }
+      
       const tentative = (gScore.get(current.id) ?? Infinity) + stepCost;
       if (tentative < (gScore.get(nb.id) ?? Infinity)) {
         cameFrom.set(nb.id, current);

@@ -4,14 +4,16 @@ import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import { buildGrid, nearestNode, type LatLng } from "@/lib/algorithms/graph";
 import { aStar } from "@/lib/algorithms/astar";
-import { buildTrafficMap, trafficBucket } from "@/lib/algorithms/traffic";
+import { buildTrafficMap, trafficBucket, sampleTrafficAlongRoute } from "@/lib/algorithms/traffic";
 import {
   fetchOSRMRoute,
+  selectRouteByType,
   osrmToLatLng,
   metresToKm,
   secondsToMinutes,
   estimateFuel,
   generateVoiceInstructions,
+  type RouteType,
 } from "@/services/osrm";
 
 const Body = z.object({
@@ -22,6 +24,18 @@ const Body = z.object({
   routeType: z.enum(["fastest", "shortest", "least_traffic", "emergency", "fuel_efficient"]).optional(),
   roadClosures: z.array(z.tuple([z.number(), z.number()])).optional(),
 });
+
+// Helper to get default trafficWeight based on routeType
+function getDefaultTrafficWeight(routeType: RouteType): number {
+  switch (routeType) {
+    case "shortest": return 0;
+    case "fastest": return 1;
+    case "least_traffic": return 2;
+    case "emergency": return 1;
+    case "fuel_efficient": return 1;
+    default: return 1;
+  }
+}
 
 export const Route = createFileRoute("/api/find-route")({
   server: {
@@ -35,7 +49,7 @@ export const Route = createFileRoute("/api/find-route")({
         const {
           source,
           destination,
-          trafficWeight = 1,
+          trafficWeight: requestedTrafficWeight,
           waypoints = [],
           routeType = "fastest",
         } = parsed.data;
@@ -48,54 +62,51 @@ export const Route = createFileRoute("/api/find-route")({
         ];
 
         try {
-          // Try OSRM real-road routing first
-          const osrmData = await fetchOSRMRoute(allWaypoints, "driving", false);
+          // -----------------------------------------------------------------
+          // OSRM-success path
+          // routeType now affects:
+          // 1) which OSRM alternative is selected via selectRouteByType
+          // 2) traffic scoring via sampleTrafficAlongRoute
+          // 3) ETA only for 'emergency' via a single documented adjustment
+          // -----------------------------------------------------------------
+          
+          // Determine if we need alternatives based on routeType
+          const needsAlternatives = routeType === "shortest" || routeType === "fuel_efficient";
+          
+          // Call OSRM with routeType-aware alternatives flag
+          const osrmData = await fetchOSRMRoute(
+            allWaypoints, 
+            "driving", 
+            needsAlternatives ? 2 : false, 
+            routeType
+          );
 
           if (osrmData.routes.length === 0) {
             throw new Error("No OSRM route found");
           }
 
-          const route = osrmData.routes[0];
+          // Select route based on routeType (if multiple routes available)
+          const route = osrmData.routes.length > 1 
+            ? selectRouteByType(osrmData.routes, routeType)
+            : osrmData.routes[0];
+            
           const coordinates = osrmToLatLng(route.geometry.coordinates);
           const distanceKm = metresToKm(route.distance);
-          const etaMinutes = secondsToMinutes(route.duration);
+          let etaMinutes = secondsToMinutes(route.duration);
 
-          // Apply route type modifiers
-          let adjustedEta = etaMinutes;
-          let trafficMultiplier = 1;
-          switch (routeType) {
-            case "emergency":
-              adjustedEta = Math.max(1, Math.round(etaMinutes * 0.6));
-              trafficMultiplier = 0.3;
-              break;
-            case "least_traffic":
-              adjustedEta = Math.round(etaMinutes * 1.15);
-              trafficMultiplier = 0.2;
-              break;
-            case "fuel_efficient":
-              adjustedEta = Math.round(etaMinutes * 1.1);
-              break;
+          // EXCEPTION: Emergency vehicles have reduced effective travel time
+          // This is a documented adjustment for emergency routing simulation
+          if (routeType === "emergency") {
+            etaMinutes = Math.max(1, Math.round(etaMinutes * 0.75));
           }
+          // All other routeTypes use the REAL duration from the selected route
+          // No multipliers applied for least_traffic, fuel_efficient, or shortest
 
-          // Simulate traffic score based on time of day and distance
-          const hour = new Date().getHours();
-          const isRushHour = (hour >= 8 && hour <= 10) || (hour >= 17 && hour <= 20);
-          const baseTraffic = isRushHour ? 0.65 : 0.25;
-          const trafficScore = Math.min(1, baseTraffic * trafficMultiplier + Math.random() * 0.15);
+          // Replace random traffic with deterministic geometry-based sampling
+          const { trafficScore, pathTraffic } = sampleTrafficAlongRoute(coordinates, routeType);
 
-          // Generate traffic heatmap along the route
-          const pathTraffic = coordinates
-            .filter((_, i) => i % Math.max(1, Math.floor(coordinates.length / 30)) === 0)
-            .map((c) => {
-              const density = Math.min(1, trafficScore + (Math.random() - 0.5) * 0.3);
-              const level = density < 0.33 ? "low" : density < 0.66 ? "medium" : "high";
-              const color =
-                level === "low" ? "#22c55e" : level === "medium" ? "#eab308" : "#ef4444";
-              return { lat: c[0], lng: c[1], density: +density.toFixed(2), level, color };
-            });
-
-          // Fuel estimation
-          const fuel = estimateFuel(distanceKm, adjustedEta);
+          // Fuel estimation using REAL (or emergency-adjusted) etaMinutes
+          const fuel = estimateFuel(distanceKm, etaMinutes);
 
           // Voice instructions
           const allSteps = route.legs.flatMap((l) => l.steps);
@@ -117,13 +128,13 @@ export const Route = createFileRoute("/api/find-route")({
             coordinates,
             explored: [], // OSRM doesn't expose explored nodes
             distanceKm,
-            etaMinutes: adjustedEta,
+            etaMinutes,
             trafficScore: +trafficScore.toFixed(2),
             nodesExplored: coordinates.length,
             cost: route.weight,
             pathTraffic,
             bucket: trafficBucket(),
-            routeType,
+            routeType, // Echo back actual routeType from request
             fuel,
             voiceInstructions,
             turnByTurn,
@@ -137,20 +148,34 @@ export const Route = createFileRoute("/api/find-route")({
         } catch (osrmError) {
           console.warn("[find-route] OSRM failed, falling back to grid A*:", osrmError);
 
-          // Fallback: grid-based A* routing
+          // -----------------------------------------------------------------
+          // A* fallback path
+          // -----------------------------------------------------------------
           const grid = buildGrid(source as LatLng, destination as LatLng, 22);
           const traffic = buildTrafficMap(grid);
           const start = nearestNode(grid, source as LatLng);
           const goal = nearestNode(grid, destination as LatLng);
 
-          const result = aStar(grid, start, goal, traffic, { trafficWeight });
+          // Determine trafficWeight: use requested or default based on routeType
+          const trafficWeight = requestedTrafficWeight ?? getDefaultTrafficWeight(routeType);
+
+          // Pass routeType to A* so the cost function can adapt
+          const result = aStar(grid, start, goal, traffic, { trafficWeight, routeType });
+          
           if (!result) {
             return Response.json({ error: "No route found" }, { status: 404 });
           }
 
+          // Calculate ETA from A* result (already considers traffic via cost function)
           const avgSpeed = 50 * (1 - result.trafficScore * 0.55);
-          const etaMinutes = (result.distanceKm / Math.max(10, avgSpeed)) * 60;
+          let etaMinutes = (result.distanceKm / Math.max(10, avgSpeed)) * 60;
 
+          // Apply same emergency adjustment as OSRM path for consistency
+          if (routeType === "emergency") {
+            etaMinutes = Math.max(1, Math.round(etaMinutes * 0.75));
+          }
+
+          // Build pathTraffic from A* result (already computed with real densities)
           const pathTraffic = result.path.map((n) => ({
             lat: n.lat,
             lng: n.lng,
@@ -162,22 +187,22 @@ export const Route = createFileRoute("/api/find-route")({
           const fuel = estimateFuel(result.distanceKm, Math.round(etaMinutes));
 
           return Response.json({
-            coordinates: result.coordinates,
-            explored: result.explored,
-            distanceKm: +result.distanceKm.toFixed(2),
-            etaMinutes: Math.round(etaMinutes),
-            trafficScore: +result.trafficScore.toFixed(2),
-            nodesExplored: result.explored.length,
-            cost: +result.cost.toFixed(2),
-            pathTraffic,
-            bucket: trafficBucket(),
-            routeType: "fastest",
-            fuel,
-            voiceInstructions: [],
-            turnByTurn: [],
-            routingEngine: "astar-fallback",
-            waypoints: [],
-          });
+          coordinates: result.coordinates,
+          explored: result.explored,
+          distanceKm: +result.distanceKm.toFixed(2),
+          etaMinutes: Math.round(etaMinutes),
+          trafficScore: +result.trafficScore.toFixed(2),
+          nodesExplored: result.explored.length,
+          cost: +result.cost.toFixed(2),
+          pathTraffic,
+          bucket: trafficBucket(),
+          routeType,
+          fuel,
+          voiceInstructions: [],
+          turnByTurn: [],
+          routingEngine: "astar-fallback",
+          waypoints: [],
+        });
         }
       },
     },

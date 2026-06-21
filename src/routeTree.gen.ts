@@ -10,7 +10,6 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ApiTrafficRouteImport } from './routes/api/traffic'
 import { Route as ApiGeocodeRouteImport } from './routes/api/geocode'
 import { Route as ApiFindRouteRouteImport } from './routes/api/find-route'
 import { Route as ApiAlternateRoutesRouteImport } from './routes/api/alternate-routes'
@@ -18,11 +17,6 @@ import { Route as ApiAlternateRoutesRouteImport } from './routes/api/alternate-r
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiTrafficRoute = ApiTrafficRouteImport.update({
-  id: '/api/traffic',
-  path: '/api/traffic',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiGeocodeRoute = ApiGeocodeRouteImport.update({
@@ -46,14 +40,12 @@ export interface FileRoutesByFullPath {
   '/api/alternate-routes': typeof ApiAlternateRoutesRoute
   '/api/find-route': typeof ApiFindRouteRoute
   '/api/geocode': typeof ApiGeocodeRoute
-  '/api/traffic': typeof ApiTrafficRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/alternate-routes': typeof ApiAlternateRoutesRoute
   '/api/find-route': typeof ApiFindRouteRoute
   '/api/geocode': typeof ApiGeocodeRoute
-  '/api/traffic': typeof ApiTrafficRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -61,30 +53,18 @@ export interface FileRoutesById {
   '/api/alternate-routes': typeof ApiAlternateRoutesRoute
   '/api/find-route': typeof ApiFindRouteRoute
   '/api/geocode': typeof ApiGeocodeRoute
-  '/api/traffic': typeof ApiTrafficRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/api/alternate-routes'
-    | '/api/find-route'
-    | '/api/geocode'
-    | '/api/traffic'
+  fullPaths: '/' | '/api/alternate-routes' | '/api/find-route' | '/api/geocode'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/api/alternate-routes'
-    | '/api/find-route'
-    | '/api/geocode'
-    | '/api/traffic'
+  to: '/' | '/api/alternate-routes' | '/api/find-route' | '/api/geocode'
   id:
     | '__root__'
     | '/'
     | '/api/alternate-routes'
     | '/api/find-route'
     | '/api/geocode'
-    | '/api/traffic'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -92,7 +72,6 @@ export interface RootRouteChildren {
   ApiAlternateRoutesRoute: typeof ApiAlternateRoutesRoute
   ApiFindRouteRoute: typeof ApiFindRouteRoute
   ApiGeocodeRoute: typeof ApiGeocodeRoute
-  ApiTrafficRoute: typeof ApiTrafficRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -102,13 +81,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/traffic': {
-      id: '/api/traffic'
-      path: '/api/traffic'
-      fullPath: '/api/traffic'
-      preLoaderRoute: typeof ApiTrafficRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/geocode': {
@@ -140,7 +112,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAlternateRoutesRoute: ApiAlternateRoutesRoute,
   ApiFindRouteRoute: ApiFindRouteRoute,
   ApiGeocodeRoute: ApiGeocodeRoute,
-  ApiTrafficRoute: ApiTrafficRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

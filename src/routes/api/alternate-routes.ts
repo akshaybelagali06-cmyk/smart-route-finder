@@ -3,19 +3,22 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import { buildGrid, nearestNode, type LatLng } from "@/lib/algorithms/graph";
-import { aStar } from "@/lib/algorithms/astar";
-import { buildTrafficMap } from "@/lib/algorithms/traffic";
+import { aStar, type AStarResult } from "@/lib/algorithms/astar";
+import { buildTrafficMap, sampleTrafficAlongRoute } from "@/lib/algorithms/traffic";
 import {
   fetchOSRMRoute,
   osrmToLatLng,
   metresToKm,
   secondsToMinutes,
   estimateFuel,
+  type OSRMRoute,
+  type RouteType,
 } from "@/services/osrm";
 
 const Body = z.object({
   source: z.tuple([z.number(), z.number()]),
   destination: z.tuple([z.number(), z.number()]),
+  routeType: z.enum(["fastest", "shortest", "least_traffic", "emergency", "fuel_efficient"]).optional(),
 });
 
 export const Route = createFileRoute("/api/alternate-routes")({
@@ -27,7 +30,7 @@ export const Route = createFileRoute("/api/alternate-routes")({
         if (!parsed.success) {
           return Response.json({ error: "Invalid input" }, { status: 400 });
         }
-        const { source, destination } = parsed.data;
+        const { source, destination, routeType = "fastest" } = parsed.data;
 
         try {
           // Request OSRM with alternatives
@@ -35,32 +38,21 @@ export const Route = createFileRoute("/api/alternate-routes")({
             [source as LatLng, destination as LatLng],
             "driving",
             3, // request up to 3 alternatives
+            routeType,
           );
 
-          const labels = [
-            "Fastest",
-            "Alternative 1",
-            "Alternative 2",
-            "Alternative 3",
-          ];
-
-          const routes = osrmData.routes.map((route, i) => {
+          // Build route objects with computed properties - explicit types
+          const routesWithProps = osrmData.routes.map((route: OSRMRoute, idx: number) => {
             const distanceKm = metresToKm(route.distance);
             const etaMinutes = secondsToMinutes(route.duration);
             const coordinates = osrmToLatLng(route.geometry.coordinates);
-
-            // Simulate traffic score
-            const hour = new Date().getHours();
-            const isRushHour = (hour >= 8 && hour <= 10) || (hour >= 17 && hour <= 20);
-            const trafficScore = Math.min(
-              1,
-              (isRushHour ? 0.5 : 0.2) + Math.random() * 0.25 + i * 0.05,
-            );
-
+            
+            // Use deterministic traffic scoring based on route geometry
+            const { trafficScore } = sampleTrafficAlongRoute(coordinates, "fastest");
+            
             const fuel = estimateFuel(distanceKm, etaMinutes);
 
             return {
-              label: labels[i] || `Route ${i + 1}`,
               coordinates,
               distanceKm,
               etaMinutes,
@@ -68,6 +60,67 @@ export const Route = createFileRoute("/api/alternate-routes")({
               nodesExplored: coordinates.length,
               fuel,
               routingEngine: "osrm" as const,
+              originalIndex: idx,
+            };
+          });
+
+          // SORT by etaMinutes ascending before assigning labels
+          const sortedRoutes = [...routesWithProps].sort((a, b) => a.etaMinutes - b.etaMinutes);
+          
+          // Find which route has shortest distance
+          const shortestDistance = Math.min(...routesWithProps.map(r => r.distanceKm));
+          const shortestRouteIndex = routesWithProps.findIndex(r => r.distanceKm === shortestDistance);
+          
+          // Find which route has least traffic
+          const leastTrafficScore = Math.min(...routesWithProps.map(r => r.trafficScore));
+          const leastTrafficIndex = routesWithProps.findIndex(r => r.trafficScore === leastTrafficScore);
+          
+          // Assign labels based on sorted position and properties
+          const routes = routesWithProps.map((route, idx) => {
+            let label = "";
+            
+            // Check if this is the fastest route (lowest etaMinutes)
+            const isFastest = route.etaMinutes === sortedRoutes[0].etaMinutes;
+            
+            // Check if this is the shortest route
+            const isShortest = idx === shortestRouteIndex;
+            
+            // Check if this is the least traffic route
+            const isLeastTraffic = idx === leastTrafficIndex;
+            
+            if (isFastest && isShortest) {
+              label = "Fastest & Shortest";
+            } else if (isFastest) {
+              label = "Fastest";
+            } else if (isShortest) {
+              label = "Shortest";
+            } else {
+              // Count how many alternatives before this one (in original order)
+              let altNumber = 1;
+              for (let i = 0; i < idx; i++) {
+                if (routesWithProps[i] && 
+                    routesWithProps[i].etaMinutes !== sortedRoutes[0].etaMinutes &&
+                    i !== shortestRouteIndex) {
+                  altNumber++;
+                }
+              }
+              label = `Alternative ${altNumber}`;
+            }
+            
+            // Append "Least Traffic" if this route has the lowest traffic score
+            if (isLeastTraffic && !label.includes("Least Traffic")) {
+              label = `${label} (Least Traffic)`;
+            }
+            
+            return {
+              label,
+              coordinates: route.coordinates,
+              distanceKm: route.distanceKm,
+              etaMinutes: route.etaMinutes,
+              trafficScore: route.trafficScore,
+              nodesExplored: route.nodesExplored,
+              fuel: route.fuel,
+              routingEngine: route.routingEngine,
             };
           });
 
@@ -92,7 +145,7 @@ export const Route = createFileRoute("/api/alternate-routes")({
 
           const routes = variants
             .map((v) => {
-              const r = aStar(grid, start, goal, traffic, {
+              const r: AStarResult | null = aStar(grid, start, goal, traffic, {
                 trafficWeight: v.trafficWeight,
               });
               if (!r) return null;
@@ -110,7 +163,7 @@ export const Route = createFileRoute("/api/alternate-routes")({
                 routingEngine: "astar-fallback" as const,
               };
             })
-            .filter(Boolean);
+            .filter((r): r is NonNullable<typeof r> => r !== null);
 
           return Response.json({ routes });
         }
